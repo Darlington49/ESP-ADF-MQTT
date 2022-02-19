@@ -21,6 +21,8 @@
 #include "filter_resample.h"
 #include "input_key_service.h"
 
+#include "mqtt_client.h"
+
 #if __has_include("esp_idf_version.h")
 #include "esp_idf_version.h"
 #else
@@ -34,16 +36,82 @@
 #endif
 
 static const char *TAG = "REC_RAW_HTTP";
+static const char *TAGMQTT = "MQTT";
 
 #define DEMO_EXIT_BIT (BIT0)
 
 #define WIFI_SSID "HUAWEI-6EBW"
 #define WIFI_PASSWORD "sBkaGtse"
 #define BROKER_URL "mqtt://192.168.100.9:1883"
-#define SERVER_URI "http://192.168.100.7:8000/upload"
+#define SERVER_URI "http://192.168.100.9:8000/upload"
 
 static audio_pipeline_handle_t pipeline;
 static EventGroupHandle_t EXIT_FLAG;
+
+esp_mqtt_client_handle_t client;
+
+static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
+{
+    esp_mqtt_client_handle_t client = event->client;
+    int msg_id;
+    // your_context_t *context = event->context;
+    switch (event->event_id)
+    {
+    case MQTT_EVENT_CONNECTED:
+        ESP_LOGI(TAGMQTT, "MQTT_EVENT_CONNECTED");
+        msg_id = esp_mqtt_client_publish(client, "/topic/qos1", "data_3", 0, 1, 0);
+        ESP_LOGI(TAGMQTT, "sent publish successful, msg_id=%d", msg_id);
+
+        msg_id = esp_mqtt_client_subscribe(client, "/topic/qos0", 0);
+        ESP_LOGI(TAGMQTT, "sent subscribe successful, msg_id=%d", msg_id);
+
+        msg_id = esp_mqtt_client_subscribe(client, "/topic/qos1", 1);
+        ESP_LOGI(TAGMQTT, "sent subscribe successful, msg_id=%d", msg_id);
+
+        msg_id = esp_mqtt_client_unsubscribe(client, "/topic/qos1");
+        ESP_LOGI(TAGMQTT, "sent unsubscribe successful, msg_id=%d", msg_id);
+        break;
+    case MQTT_EVENT_DISCONNECTED:
+        ESP_LOGI(TAGMQTT, "MQTT_EVENT_DISCONNECTED");
+        break;
+
+    case MQTT_EVENT_SUBSCRIBED:
+        ESP_LOGI(TAGMQTT, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+        msg_id = esp_mqtt_client_publish(client, "/topic/qos0", "data", 0, 0, 0);
+        ESP_LOGI(TAGMQTT, "sent publish successful, msg_id=%d", msg_id);
+        break;
+    case MQTT_EVENT_UNSUBSCRIBED:
+        ESP_LOGI(TAGMQTT, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+        break;
+    case MQTT_EVENT_PUBLISHED:
+        ESP_LOGI(TAGMQTT, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+        break;
+    case MQTT_EVENT_DATA:
+        ESP_LOGI(TAGMQTT, "MQTT_EVENT_DATA");
+        ESP_LOGI(TAGMQTT, "TOPIC=%.*s\r\n", event->topic_len, event->topic);
+        ESP_LOGI(TAGMQTT, "DATA=%.*s\r\n", event->data_len, event->data);
+        break;
+    case MQTT_EVENT_ERROR:
+        ESP_LOGI(TAGMQTT, "MQTT_EVENT_ERROR");
+        break;
+    default:
+        ESP_LOGI(TAGMQTT, "Other event id:%d", event->event_id);
+        break;
+    }
+    return ESP_OK;
+}
+
+static void mqtt_app_start(void)
+{
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .uri = BROKER_URL,
+        .event_handle = mqtt_event_handler,
+        // .user_context = (void *)your_context
+    };
+
+    client = esp_mqtt_client_init(&mqtt_cfg);
+    esp_mqtt_client_start(client);
+}
 
 esp_err_t _http_stream_event_handle(http_stream_event_msg_t *msg)
 {
@@ -68,8 +136,9 @@ esp_err_t _http_stream_event_handle(http_stream_event_msg_t *msg)
         ESP_LOGI(TAG, "[ + ] HTTP client HTTP_STREAM_ON_REQUEST, lenght=%d", msg->buffer_len);
         // write data
         int wlen = sprintf(len_buf, "%x\r\n", msg->buffer_len);
-        // ESP_LOGI(TAG, "%x\r\n", msg->buffer_lenn);
-        // printf("%x\r\n", &msg->buffer);
+        int msg_id;
+        msg_id = esp_mqtt_client_publish(client, "/topic/qos1", msg->buffer, msg->buffer_len, 1, 0);
+        ESP_LOGI(TAGMQTT, "sent publish successful, msg_id=%d", msg_id);
 
         if (esp_http_client_write(http, len_buf, wlen) <= 0)
         {
@@ -159,6 +228,7 @@ void app_main(void)
 
     esp_log_level_set("*", ESP_LOG_WARN);
     esp_log_level_set(TAG, ESP_LOG_INFO);
+    esp_log_level_set(TAGMQTT, ESP_LOG_INFO);
 
     EXIT_FLAG = xEventGroupCreate();
 
@@ -176,35 +246,53 @@ void app_main(void)
     tcpip_adapter_init();
 #endif
 
-    //============================================================== Start codec chip Config Board ==========================================================================
-    ESP_LOGI(TAG, "[ 2 ] Start codec chip");
-    audio_board_handle_t board_handle = audio_board_init();
-    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_ENCODE, AUDIO_HAL_CTRL_START);
-    //============================================================== end  codec chip Config Board ==========================================================================
-    //===============================================================Create http stream to post data to server=========================================================================
-    ESP_LOGI(TAG, "[3.1] Create http stream to post data to server");
-
-    http_stream_cfg_t http_cfg = HTTP_STREAM_CFG_DEFAULT();
-    http_cfg.type = AUDIO_STREAM_WRITER;
-    http_cfg.event_handle = _http_stream_event_handle;
-    http_stream_writer = http_stream_init(&http_cfg);
-    //===============================================================end http stream to post data to server=========================================================================
-
-    //=============================================================== Initialize Button Peripheral & Connect to wifi network =========================================================================
     ESP_LOGI(TAG, "[ 1 ] Initialize Button Peripheral & Connect to wifi network");
     // Initialize peripherals management
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
     periph_wifi_cfg_t wifi_cfg = {
-        .ssid = WIFI_SSID,
-        .password = WIFI_PASSWORD,
+        .ssid = CONFIG_WIFI_SSID,
+        .password = CONFIG_WIFI_PASSWORD,
     };
     esp_periph_handle_t wifi_handle = periph_wifi_init(&wifi_cfg);
 
     // Start wifi & button peripheral
     esp_periph_start(set, wifi_handle);
     periph_wifi_wait_for_connected(wifi_handle, portMAX_DELAY);
+    mqtt_app_start();
+
+    ESP_LOGI(TAG, "[ 2 ] Start codec chip");
+    audio_board_handle_t board_handle = audio_board_init();
+    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_ENCODE, AUDIO_HAL_CTRL_START);
+
+    ESP_LOGI(TAG, "[3.0] Create audio pipeline for recording");
+    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
+    pipeline = audio_pipeline_init(&pipeline_cfg);
+    mem_assert(pipeline);
+
+    ESP_LOGI(TAG, "[3.1] Create http stream to post data to server");
+
+    http_stream_cfg_t http_cfg = HTTP_STREAM_CFG_DEFAULT();
+    http_cfg.type = AUDIO_STREAM_WRITER;
+    http_cfg.event_handle = _http_stream_event_handle;
+    http_stream_writer = http_stream_init(&http_cfg);
+
+    ESP_LOGI(TAG, "[3.2] Create i2s stream to read audio data from codec chip");
+    i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT();
+    i2s_cfg.type = AUDIO_STREAM_READER;
+#if defined CONFIG_ESP_LYRAT_MINI_V1_1_BOARD
+    i2s_cfg.i2s_port = 1;
+#endif
+    i2s_stream_reader = i2s_stream_init(&i2s_cfg);
+
+    ESP_LOGI(TAG, "[3.3] Register all elements to audio pipeline");
+    audio_pipeline_register(pipeline, i2s_stream_reader, "i2s");
+    audio_pipeline_register(pipeline, http_stream_writer, "http");
+
+    ESP_LOGI(TAG, "[3.4] Link it together [codec_chip]-->i2s_stream->http_stream-->[http_server]");
+    const char *link_tag[2] = {"i2s", "http"};
+    audio_pipeline_link(pipeline, &link_tag[0], 2);
 
     // Initialize Button peripheral
     audio_board_key_init(set);
@@ -215,35 +303,7 @@ void app_main(void)
     input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
     periph_service_set_callback(input_ser, input_key_service_cb, (void *)http_stream_writer);
 
-    //============================================================= End Initialize Button Peripheral & Connect to wifi network===========================================================================
-
-    //===============================================================Create i2s stream to read audio data from codec chip=========================================================================
-
-    ESP_LOGI(TAG, "[3.2] Create i2s stream to read audio data from codec chip");
-    i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT();
-    i2s_cfg.type = AUDIO_STREAM_READER;
-#if defined CONFIG_ESP_LYRAT_MINI_V1_1_BOARD
-    i2s_cfg.i2s_port = 1;
-#endif
-    i2s_stream_reader = i2s_stream_init(&i2s_cfg);
     i2s_stream_set_clk(i2s_stream_reader, 16000, 16, 2);
-
-    //===============================================================end i2s stream to read audio data from codec chip=========================================================================
-
-    //===============================================================Create audio pipeline for recording=========================================================================
-    ESP_LOGI(TAG, "[3.0] Create audio pipeline for recording");
-    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
-    pipeline = audio_pipeline_init(&pipeline_cfg);
-    mem_assert(pipeline);
-
-    ESP_LOGI(TAG, "[3.3] Register all elements to audio pipeline");
-    audio_pipeline_register(pipeline, i2s_stream_reader, "i2s");
-    audio_pipeline_register(pipeline, http_stream_writer, "http");
-
-    ESP_LOGI(TAG, "[3.4] Link it together [codec_chip]-->i2s_stream->http_stream-->[http_server]");
-    const char *link_tag[2] = {"i2s", "http"};
-    audio_pipeline_link(pipeline, &link_tag[0], 2);
-    //===============================================================end  audio pipeline for recording=========================================================================
 
     ESP_LOGI(TAG, "[ 4 ] Press [Rec] button to record, Press [Mode] to exit");
     xEventGroupWaitBits(EXIT_FLAG, DEMO_EXIT_BIT, true, false, portMAX_DELAY);
