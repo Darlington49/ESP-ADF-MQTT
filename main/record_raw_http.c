@@ -1,12 +1,3 @@
-/* Record WAV file to SD Card
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -50,8 +41,6 @@ static const char *TAG = "REC_RAW_HTTP";
 #define WIFI_PASSWORD "sBkaGtse"
 #define BROKER_URL "mqtt://192.168.100.9:1883"
 #define SERVER_URI "http://192.168.100.7:8000/upload"
-
-
 
 static audio_pipeline_handle_t pipeline;
 static EventGroupHandle_t EXIT_FLAG;
@@ -187,6 +176,21 @@ void app_main(void)
     tcpip_adapter_init();
 #endif
 
+    //============================================================== Start codec chip Config Board ==========================================================================
+    ESP_LOGI(TAG, "[ 2 ] Start codec chip");
+    audio_board_handle_t board_handle = audio_board_init();
+    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_ENCODE, AUDIO_HAL_CTRL_START);
+    //============================================================== end  codec chip Config Board ==========================================================================
+    //===============================================================Create http stream to post data to server=========================================================================
+    ESP_LOGI(TAG, "[3.1] Create http stream to post data to server");
+
+    http_stream_cfg_t http_cfg = HTTP_STREAM_CFG_DEFAULT();
+    http_cfg.type = AUDIO_STREAM_WRITER;
+    http_cfg.event_handle = _http_stream_event_handle;
+    http_stream_writer = http_stream_init(&http_cfg);
+    //===============================================================end http stream to post data to server=========================================================================
+
+    //=============================================================== Initialize Button Peripheral & Connect to wifi network =========================================================================
     ESP_LOGI(TAG, "[ 1 ] Initialize Button Peripheral & Connect to wifi network");
     // Initialize peripherals management
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
@@ -202,38 +206,6 @@ void app_main(void)
     esp_periph_start(set, wifi_handle);
     periph_wifi_wait_for_connected(wifi_handle, portMAX_DELAY);
 
-    ESP_LOGI(TAG, "[ 2 ] Start codec chip");
-    audio_board_handle_t board_handle = audio_board_init();
-    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_ENCODE, AUDIO_HAL_CTRL_START);
-
-    ESP_LOGI(TAG, "[3.0] Create audio pipeline for recording");
-    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
-    pipeline = audio_pipeline_init(&pipeline_cfg);
-    mem_assert(pipeline);
-
-    ESP_LOGI(TAG, "[3.1] Create http stream to post data to server");
-
-    http_stream_cfg_t http_cfg = HTTP_STREAM_CFG_DEFAULT();
-    http_cfg.type = AUDIO_STREAM_WRITER;
-    http_cfg.event_handle = _http_stream_event_handle;
-    http_stream_writer = http_stream_init(&http_cfg);
-
-    ESP_LOGI(TAG, "[3.2] Create i2s stream to read audio data from codec chip");
-    i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT();
-    i2s_cfg.type = AUDIO_STREAM_READER;
-#if defined CONFIG_ESP_LYRAT_MINI_V1_1_BOARD
-    i2s_cfg.i2s_port = 1;
-#endif
-    i2s_stream_reader = i2s_stream_init(&i2s_cfg);
-
-    ESP_LOGI(TAG, "[3.3] Register all elements to audio pipeline");
-    audio_pipeline_register(pipeline, i2s_stream_reader, "i2s");
-    audio_pipeline_register(pipeline, http_stream_writer, "http");
-
-    ESP_LOGI(TAG, "[3.4] Link it together [codec_chip]-->i2s_stream->http_stream-->[http_server]");
-    const char *link_tag[2] = {"i2s", "http"};
-    audio_pipeline_link(pipeline, &link_tag[0], 2);
-
     // Initialize Button peripheral
     audio_board_key_init(set);
     input_key_service_info_t input_key_info[] = INPUT_KEY_DEFAULT_INFO();
@@ -243,7 +215,35 @@ void app_main(void)
     input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
     periph_service_set_callback(input_ser, input_key_service_cb, (void *)http_stream_writer);
 
+    //============================================================= End Initialize Button Peripheral & Connect to wifi network===========================================================================
+
+    //===============================================================Create i2s stream to read audio data from codec chip=========================================================================
+
+    ESP_LOGI(TAG, "[3.2] Create i2s stream to read audio data from codec chip");
+    i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT();
+    i2s_cfg.type = AUDIO_STREAM_READER;
+#if defined CONFIG_ESP_LYRAT_MINI_V1_1_BOARD
+    i2s_cfg.i2s_port = 1;
+#endif
+    i2s_stream_reader = i2s_stream_init(&i2s_cfg);
     i2s_stream_set_clk(i2s_stream_reader, 16000, 16, 2);
+
+    //===============================================================end i2s stream to read audio data from codec chip=========================================================================
+
+    //===============================================================Create audio pipeline for recording=========================================================================
+    ESP_LOGI(TAG, "[3.0] Create audio pipeline for recording");
+    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
+    pipeline = audio_pipeline_init(&pipeline_cfg);
+    mem_assert(pipeline);
+
+    ESP_LOGI(TAG, "[3.3] Register all elements to audio pipeline");
+    audio_pipeline_register(pipeline, i2s_stream_reader, "i2s");
+    audio_pipeline_register(pipeline, http_stream_writer, "http");
+
+    ESP_LOGI(TAG, "[3.4] Link it together [codec_chip]-->i2s_stream->http_stream-->[http_server]");
+    const char *link_tag[2] = {"i2s", "http"};
+    audio_pipeline_link(pipeline, &link_tag[0], 2);
+    //===============================================================end  audio pipeline for recording=========================================================================
 
     ESP_LOGI(TAG, "[ 4 ] Press [Rec] button to record, Press [Mode] to exit");
     xEventGroupWaitBits(EXIT_FLAG, DEMO_EXIT_BIT, true, false, portMAX_DELAY);
