@@ -46,6 +46,13 @@ static const char *TAG = "REC_RAW_HTTP";
 
 #define DEMO_EXIT_BIT (BIT0)
 
+#define WIFI_SSID "HUAWEI-6EBW"
+#define WIFI_PASSWORD "sBkaGtse"
+#define BROKER_URL "mqtt://192.168.100.9:1883"
+#define SERVER_URI "http://192.168.100.7:8000/upload"
+
+
+
 static audio_pipeline_handle_t pipeline;
 static EventGroupHandle_t EXIT_FLAG;
 
@@ -134,7 +141,7 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
             break;
         case INPUT_KEY_USER_ID_REC:
             ESP_LOGI(TAG, "[ * ] [Rec] input key event, resuming pipeline ...");
-            audio_element_set_uri(http_stream_writer, CONFIG_SERVER_URI);
+            audio_element_set_uri(http_stream_writer, SERVER_URI);
             audio_pipeline_run(pipeline);
             break;
         }
@@ -186,8 +193,8 @@ void app_main(void)
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
     periph_wifi_cfg_t wifi_cfg = {
-        .ssid = CONFIG_WIFI_SSID,
-        .password = CONFIG_WIFI_PASSWORD,
+        .ssid = WIFI_SSID,
+        .password = WIFI_PASSWORD,
     };
     esp_periph_handle_t wifi_handle = periph_wifi_init(&wifi_cfg);
 
