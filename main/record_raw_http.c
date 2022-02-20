@@ -119,6 +119,7 @@ esp_err_t _http_stream_event_handle(http_stream_event_msg_t *msg)
     esp_http_client_handle_t http = (esp_http_client_handle_t)msg->http_client;
     char len_buf[16];
     static int total_write = 0;
+    int msg_id;
 
     if (msg->event_id == HTTP_STREAM_PRE_REQUEST)
     {
@@ -128,6 +129,8 @@ esp_err_t _http_stream_event_handle(http_stream_event_msg_t *msg)
         esp_http_client_set_header(http, "x-audio-bits", "16");
         esp_http_client_set_header(http, "x-audio-channel", "2");
         total_write = 0;
+        msg_id = esp_mqtt_client_publish(client, "/wave/signal", "start", 0, 1, 0);
+        ESP_LOGI(TAGMQTT, "sent publish successful, msg_id=%d", msg_id);
         return ESP_OK;
     }
 
@@ -136,8 +139,7 @@ esp_err_t _http_stream_event_handle(http_stream_event_msg_t *msg)
         ESP_LOGI(TAG, "[ + ] HTTP client HTTP_STREAM_ON_REQUEST, lenght=%d", msg->buffer_len);
         // write data
         int wlen = sprintf(len_buf, "%x\r\n", msg->buffer_len);
-        int msg_id;
-        msg_id = esp_mqtt_client_publish(client, "/topic/qos1", msg->buffer, msg->buffer_len, 1, 0);
+        msg_id = esp_mqtt_client_publish(client, "/wave/data", msg->buffer, msg->buffer_len, 1, 0);
         ESP_LOGI(TAGMQTT, "sent publish successful, msg_id=%d", msg_id);
 
         if (esp_http_client_write(http, len_buf, wlen) <= 0)
@@ -160,6 +162,8 @@ esp_err_t _http_stream_event_handle(http_stream_event_msg_t *msg)
     if (msg->event_id == HTTP_STREAM_POST_REQUEST)
     {
         ESP_LOGI(TAG, "[ + ] HTTP client HTTP_STREAM_POST_REQUEST, write end chunked marker");
+        msg_id = esp_mqtt_client_publish(client, "/wave/data", "0\r\n\r\n", 5, 1, 0);
+        ESP_LOGI(TAGMQTT, "sent publish successful, msg_id=%d", msg_id);
         if (esp_http_client_write(http, "0\r\n\r\n", 5) <= 0)
         {
             return ESP_FAIL;
@@ -170,6 +174,8 @@ esp_err_t _http_stream_event_handle(http_stream_event_msg_t *msg)
     if (msg->event_id == HTTP_STREAM_FINISH_REQUEST)
     {
         ESP_LOGI(TAG, "[ + ] HTTP client HTTP_STREAM_FINISH_REQUEST");
+        msg_id = esp_mqtt_client_publish(client, "/wave/signal", "STOP", 0, 1, 0);
+        ESP_LOGI(TAGMQTT, "sent publish successful, msg_id=%d", msg_id);
         char *buf = calloc(1, 64);
         assert(buf);
         int read_len = esp_http_client_read(http, buf, 64);
