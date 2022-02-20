@@ -48,19 +48,6 @@ client.on("message", (topic, payload) => {
   // console.log("Received Message:", topic, payload.toString());
   console.log("Received Message:", topic,payload.length);
 
-  // if (payload.toString() === "start") {
-  //   //create a new file
-  //   console.log("Received Message:", topic, payload.toString());
-  // } else if (payload.toString() === "STOP") {
-  //   // stop
-  //   console.log("Received Message:", topic, payload.toString());
-  // } else {
-  //   console.log("Received Buffer Message:", topic, payload.length);
-  //   // payload.pipe(outputFileStream);
-  //   outputFileStream.write(payload);
-  // }
-  // console.log("Received Message:", topic, payload.toString());
-  // console.log("Received Message:", topic, payload);
 
   if (topic === "/wave/signal") {
     console.log("Received Message:", topic, payload.toString());
