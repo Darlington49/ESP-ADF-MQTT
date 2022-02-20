@@ -11,6 +11,8 @@
   "license": "ISC",
   "dependencies": {
     "express": "^4.17.3",
-    "mqtt": "^4.3.6"
+    "mic": "^2.1.2",
+    "mqtt": "^4.3.6",
+    "wav": "^1.0.2"
   }
 }
