@@ -46,11 +46,20 @@ var outputFileStream = new FileWriter("./mqttwave.wav", {
 });
 client.on("message", (topic, payload) => {
   // console.log("Received Message:", topic, payload.toString());
-  console.log("Received Message:", topic,payload.length);
-
+  console.log("Received Message:", topic, payload.length);
 
   if (topic === "/wave/signal") {
     console.log("Received Message:", topic, payload.toString());
+    // 1 recover information such as :
+    //    audio-sample-rates  "16000"
+    //    audio-bits  "16"
+    //    audio-channel  "2"
+    // 2 Create file with this params
+    var outputFileStream = new FileWriter("./mqttwave.wav", {
+      sampleRate: 16000,
+      channels: 2,
+      bitDepth: 16,
+    });
   } else if (topic === "/wave/data") {
     outputFileStream.write(payload);
     console.log("writing to the file");
@@ -58,3 +67,11 @@ client.on("message", (topic, payload) => {
     console.log("Received Message:", topic, payload.toString());
   }
 });
+
+function filename(rates, bits, ch) {
+  time = new Date().toISOString().replaceAll(":", "");
+  time = time.replaceAll("-", "");
+  time = time.replaceAll(".", "");
+
+  return `${time}_${rates}_${bits}_${ch}.wav`;
+}
