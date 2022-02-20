@@ -1,32 +1,17 @@
-// const mqtt = require('mqtt')
-// const client  = mqtt.connect('mqtt://192.168.100.9:1883')
-
-// client.on('connect', function () {
-//   console.log("connected")
-
-//   client.subscribe('presence', function (err) {
-//     if (!err) {
-//       client.publish('presence', 'Hello mqtt')
-//     }
-//   })
-// })
-
-// client.on('/topic/qos0', function (topic, message) {
-//   // message is Buffer
-//   console.log(topic)
-//   console.log(message.toString())
-// //   client.end()
-// })
-
 const mqtt = require("mqtt");
 
 const host = "192.168.100.9";
 const port = "1883";
 const clientId = `mqtt_${Math.random().toString(16).slice(3)}`;
-const topic = "/topic/qos1";
+const topics = ["/topic/qos1", "/wave/data", "/wave/signal"];
 
-console.log("clientId :",clientId)
+console.log("clientId :", clientId);
 const connectUrl = `mqtt://${host}:${port}`;
+var FileWriter = require("wav").FileWriter;
+
+//1 Create a file
+// 2. configure the Headers
+// 3. concat or keep adding the data
 ClientConfig = {
   clientId,
   clean: true,
@@ -40,11 +25,11 @@ const client = mqtt.connect(connectUrl);
 
 client.on("connect", () => {
   console.log("Connected");
-  client.subscribe([topic], () => {
-    console.log(`Subscribe to topic '${topic}'`);
+  client.subscribe(topics, () => {
+    console.log(`Subscribe to topic '${topics[0]}'`);
   });
   client.publish(
-    topic,
+    topics[0],
     "nodejs mqtt test",
     { qos: 0, retain: false },
     (error) => {
@@ -54,7 +39,35 @@ client.on("connect", () => {
     }
   );
 });
-
+var outputFileStream = new FileWriter("./mqttwave.wav", {
+  sampleRate: 16000,
+  channels: 2,
+  bitDepth: 16,
+});
 client.on("message", (topic, payload) => {
-  console.log("Received Message:", topic, payload.toString());
+  // console.log("Received Message:", topic, payload.toString());
+  console.log("Received Message:", topic,payload.length);
+
+  // if (payload.toString() === "start") {
+  //   //create a new file
+  //   console.log("Received Message:", topic, payload.toString());
+  // } else if (payload.toString() === "STOP") {
+  //   // stop
+  //   console.log("Received Message:", topic, payload.toString());
+  // } else {
+  //   console.log("Received Buffer Message:", topic, payload.length);
+  //   // payload.pipe(outputFileStream);
+  //   outputFileStream.write(payload);
+  // }
+  // console.log("Received Message:", topic, payload.toString());
+  // console.log("Received Message:", topic, payload);
+
+  if (topic === "/wave/signal") {
+    console.log("Received Message:", topic, payload.toString());
+  } else if (topic === "/wave/data") {
+    outputFileStream.write(payload);
+    console.log("writing to the file");
+  } else {
+    console.log("Received Message:", topic, payload.toString());
+  }
 });
